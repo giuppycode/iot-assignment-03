@@ -18,5 +18,5 @@ The project has been tested and has native support for the following `i2c` displ
 - LCD - `1602 lcd`
 
 
-To build and run the java dashboard run `./build.sh` inside the `./java/DroneRemoteUnit/` dir
+To build and run the java dashboard run `./build.sh`
 
