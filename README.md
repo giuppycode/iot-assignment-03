@@ -1,6 +1,4 @@
-# iot-assignment-03
-
-# Assignment #02 - Smart Drone Hangar - IoT Embedded Systems Year: 2025/2026
+# Assignment #03 - Smart Tank Monitoring System - IoT Embedded Systems Year: 2025/2026
 
 - [assignment instructions](https://github.com/pslab-unibo/esiot-2025-2026/blob/master/assignments/assignment-03.md)
 
