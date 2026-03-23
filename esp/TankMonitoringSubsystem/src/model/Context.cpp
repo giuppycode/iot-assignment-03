@@ -14,4 +14,3 @@ float Context::getCurrentDistance()
 {
   return currentDistance;
 }
-
