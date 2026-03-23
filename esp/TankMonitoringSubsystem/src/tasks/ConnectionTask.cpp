@@ -1,22 +1,45 @@
 #include "ConnectionTask.h"
 #include "kernel/Logger.h"
 
-ConnectionTask::ConnectionTask(PubSubClient *pClient)
+ConnectionTask::ConnectionTask(PubSubClient *pClient, Led *pGreenLED, Led *pRedLED)
 {
     this->pClient = pClient;
+    this->pGreenLED = pGreenLED;
+    this->pRedLED = pRedLED;
     setState(CHECKING);
 }
 
 void ConnectionTask::setState(ConnectionState newState)
 {
     state = newState;
+    stateTimestamp = millis();
+    justEntered = true;
+
+    if (state == CHECKING)
+    {
+        pGreenLED->switchOn();
+        pRedLED->switchOff();
+    }
+    else
+    {
+        pGreenLED->switchOff();
+        pRedLED->switchOn();
+    }
+}
+
+bool ConnectionTask::checkAndSetJustEntered()
+{
+    bool bak = justEntered;
+    if (justEntered)
+    {
+        justEntered = false;
+    }
+    return bak;
 }
 
 void ConnectionTask::tick()
 {
-    // FONDAMENTALE: deve essere chiamato ad ogni tick
     pClient->loop();
-
     switch (state)
     {
     case CHECKING:
@@ -33,7 +56,11 @@ void ConnectionTask::tick()
         break;
 
     case RECONNECTING_WIFI:
-        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        if (checkAndSetJustEntered())
+        {
+            WiFi.disconnect();
+            WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        }
         if (WiFi.status() == WL_CONNECTED)
         {
             Logger.log("[ConnectionTask] WiFi restored");
@@ -42,6 +69,11 @@ void ConnectionTask::tick()
         break;
 
     case RECONNECTING_MQTT:
+        if (checkAndSetJustEntered())
+        {
+            // reset eventuale stato precedente
+            pClient->disconnect();
+        }
         String clientId = String("esiot-client-") + String(random(0xffff), HEX);
         if (pClient->connect(clientId.c_str()))
         {

@@ -30,7 +30,7 @@ void setup()
 
   // 2. MQTT server config
   pTankMonitoringPlatform = new TankMonitoringPlatform();
-  pTankMonitoringPlatform->init(); // chiama setServer() internamente
+  pTankMonitoringPlatform->init();
 
   sched.init(50);
   randomSeed(micros());
@@ -46,7 +46,7 @@ void setup()
   pPublishTask->init(2000);
   sched.addTask(pPublishTask);
 
-  Task *pConnectionTask = new ConnectionTask(pTankMonitoringPlatform->getMQTTClient());
+  Task *pConnectionTask = new ConnectionTask(pTankMonitoringPlatform->getMQTTClient(), pTankMonitoringPlatform->getGreenLED(), pTankMonitoringPlatform->getRedLED());
   pConnectionTask->init(50);
   sched.addTask(pConnectionTask);
 #endif

@@ -2,6 +2,7 @@
 #define __CONNECTION_TASK__
 
 #include "kernel/Task.h"
+#include "devices/Led.h"
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include "config.h"
@@ -16,13 +17,18 @@ enum ConnectionState
 class ConnectionTask : public Task
 {
 public:
-    ConnectionTask(PubSubClient *pClient);
+    ConnectionTask(PubSubClient *pClient, Led *pGreenLED, Led *pRedLED);
     void tick() override;
 
 private:
     PubSubClient *pClient;
+    Led *pGreenLED;
+    Led *pRedLED;
     ConnectionState state;
     void setState(ConnectionState newState);
+    unsigned long stateTimestamp;
+    bool justEntered;
+    bool checkAndSetJustEntered();
 };
 
 #endif
