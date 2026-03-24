@@ -1,5 +1,5 @@
-#ifndef __HANGAR_PLATFORM__
-#define __HANGAR_PLATFORM__
+#ifndef __WATER_CHANNEL_PLATFORM__
+#define __WATER_CHANNEL_PLATFORM__
 
 #include "config.h"
 #include "devices/Button.h"
