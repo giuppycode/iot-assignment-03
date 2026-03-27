@@ -53,7 +53,7 @@ bool Context::isUnconnected()
   return unconnected;
 }
 
-int Context::getPotValue()
+float Context::getPotValue()
 {
   return potValue;
 }
