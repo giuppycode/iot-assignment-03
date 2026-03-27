@@ -27,7 +27,7 @@ void FSMController::tick()
             pContext->setAutomatic();
             if (this->checkAndSetJustEntered())
             {
-                conditionStartTime = 0;
+                Logger.log("[FSM] Entered AUTOMATIC");
                 pDisplay->showMessage("AUTOMATIC");
                 pValveMotor->close();
             }
@@ -59,7 +59,7 @@ void FSMController::tick()
             pContext->setManual();
             if (this->checkAndSetJustEntered())
             {
-                conditionStartTime = 0;
+                Logger.log("[FSM] Entered MANUAL");
                 pDisplay->showMessage("MANUAL");
             }
             if (pButton->isPressed())

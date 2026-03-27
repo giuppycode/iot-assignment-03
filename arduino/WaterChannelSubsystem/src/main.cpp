@@ -8,6 +8,7 @@
 #include "model/WaterChannelPlatform.h"
 
 #include "tasks/FSMController.h"
+#include "tasks/PotReader.h"
 
 Scheduler sched;
 
@@ -29,8 +30,11 @@ void setup()
 
   Task *pFSMController = new FSMController(pWaterChannelPlatform->getDisplayLcd(), pWaterChannelPlatform->getValveMotor(), pWaterChannelPlatform->getPot(), pWaterChannelPlatform->getButton(), pContext);
   pFSMController->init(200);
-
   sched.addTask(pFSMController);
+
+  Task *pPotReader = new PotReader(pWaterChannelPlatform->getPot(), pContext);
+  pPotReader->init(100);
+  sched.addTask(pPotReader);
 
 #endif
 }
