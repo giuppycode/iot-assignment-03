@@ -24,37 +24,36 @@ void FSMController::tick()
     switch (state)
     {
     case AUTOMATIC:
-        if (!pContext->isUnconnected())
+
+        if (this->checkAndSetJustEntered())
         {
+            Logger.log("FSM Entered AUTOMATIC");
             pContext->setAutomatic();
-            if (this->checkAndSetJustEntered())
-            {
-                conditionStartTime = 0;
-                pValveMotor->close();
-            }
-            if (pButton->wasPressed())
-            {
-                setState(MANUAL);
-            }
+            pValveMotor->close();
+        }
+        if (pButton->wasPressed())
+        {
+            setState(MANUAL);
+        }
 
-            float currentDistance = pContext->getCurrentDistance();
-            if (currentDistance > L1 && currentDistance < L2)
-            {
-                pValveMotor->half();
-            }
-            else if (currentDistance >= L2)
-            {
-                pValveMotor->open();
-            }
-            else
-            {
-                pValveMotor->close();
-            }
-
-            valvePercent = pValveMotor->getOpeningPercent();
-            pDisplay->showMessage("AUTOMATIC", "Valve: " + String(valvePercent) + "%");
+        float currentDistance = pContext->getCurrentDistance();
+        if (currentDistance > L1 && currentDistance < L2)
+        {
+            pValveMotor->half();
+        }
+        else if (currentDistance >= L2)
+        {
+            pValveMotor->open();
         }
         else
+        {
+            pValveMotor->close();
+        }
+
+        valvePercent = pValveMotor->getOpeningPercent();
+        pDisplay->showMessage("AUTOMATIC", "Valve: " + String(valvePercent) + "%");
+
+        if (pContext->isUnconnected())
         {
             setState(UNCONNECTED);
         }
@@ -62,25 +61,24 @@ void FSMController::tick()
         break;
 
     case MANUAL:
-        if (!pContext->isUnconnected())
+
+        if (this->checkAndSetJustEntered())
         {
             pContext->setManual();
-            if (this->checkAndSetJustEntered())
-            {
-                conditionStartTime = 0;
-            }
-            if (pButton->wasPressed())
-            {
-                setState(AUTOMATIC);
-            }
-            int potValue = pContext->getPotValue();
-            int angle = map(potValue, 0, 1023, 0, 90);
-
-            pValveMotor->manuallySetAngle(angle);
-            valvePercent = pValveMotor->getOpeningPercent();
-            pDisplay->showMessage("MANUAL", "Valve: " + String(valvePercent) + "%");
+            Logger.log("FSM Entered MANUAL");
         }
-        else
+        if (pButton->wasPressed())
+        {
+            setState(AUTOMATIC);
+        }
+        int potValue = pContext->getPotValue();
+        int angle = map(potValue, 0, 1023, 0, 90);
+
+        pValveMotor->manuallySetAngle(angle);
+        valvePercent = pValveMotor->getOpeningPercent();
+        pDisplay->showMessage("MANUAL", "Valve: " + String(valvePercent) + "%");
+
+        if (pContext->isUnconnected())
         {
             setState(UNCONNECTED);
         }
@@ -88,17 +86,16 @@ void FSMController::tick()
         break;
 
     case UNCONNECTED:
-        if (pContext->isUnconnected())
+
+        if (this->checkAndSetJustEntered())
         {
+            Logger.log("FSM Entered UNCONNECTED");
             pContext->setUnconnected();
-            if (this->checkAndSetJustEntered())
-            {
-                conditionStartTime = 0;
-            }
-            valvePercent = pValveMotor->getOpeningPercent();
-            pDisplay->showMessage("UNCONNECTED", "Valve: " + String(valvePercent) + "%");
         }
-        else if (pContext->isAutomatic())
+        valvePercent = pValveMotor->getOpeningPercent();
+        pDisplay->showMessage("UNCONNECTED", "Valve: " + String(valvePercent) + "%");
+
+        if (pContext->isAutomatic())
         {
             setState(AUTOMATIC);
         }

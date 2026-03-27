@@ -54,7 +54,7 @@ void ValveMotor::setAngle(int angle)
 
 void ValveMotor::open()
 {
-    setAngle(90);
+    setAngle(0);
 }
 
 void ValveMotor::half()
@@ -64,7 +64,7 @@ void ValveMotor::half()
 
 void ValveMotor::close()
 {
-    setAngle(0);
+    setAngle(90);
 }
 
 void ValveMotor::manuallySetAngle(int angle)
