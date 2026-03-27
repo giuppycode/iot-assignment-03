@@ -2,6 +2,7 @@
 #define __BUTTONIMPL__
 
 #include "Button.h"
+#include <Arduino.h>
 
 class ButtonImpl : public Button
 {
@@ -9,9 +10,12 @@ class ButtonImpl : public Button
 public:
   ButtonImpl(int pin);
   bool isPressed();
+  bool wasPressed();
 
 private:
   int pin;
+  bool lastState;
+  unsigned long lastReleaseTime;
 };
 
 #endif

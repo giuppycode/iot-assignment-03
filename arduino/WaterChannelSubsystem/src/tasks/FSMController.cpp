@@ -32,7 +32,7 @@ void FSMController::tick()
                 conditionStartTime = 0;
                 pValveMotor->close();
             }
-            if (pButton->isPressed())
+            if (pButton->wasPressed())
             {
                 setState(MANUAL);
             }
@@ -69,7 +69,7 @@ void FSMController::tick()
             {
                 conditionStartTime = 0;
             }
-            if (pButton->isPressed())
+            if (pButton->wasPressed())
             {
                 setState(AUTOMATIC);
             }
