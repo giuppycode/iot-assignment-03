@@ -1,55 +1,81 @@
 #include "ValveMotor.h"
+#include <Arduino.h>
 
 ValveMotor::ValveMotor(int pin)
 {
     _pin = pin;
-    // Il motore non viene "attaccato" subito per risparmiare corrente
+    currentAngle = -1;
+    currentPercent = 0;
+}
+
+bool ValveMotor::isAttached()
+{
+    return motor.attached();
+}
+
+void ValveMotor::safeAttach()
+{
+    if (!motor.attached())
+    {
+        motor.attach(_pin);
+    }
+}
+
+void ValveMotor::safeDetach()
+{
+    if (motor.attached())
+    {
+        motor.detach();
+    }
 }
 
 void ValveMotor::setAngle(int angle)
 {
-    if (angle > 180)
+    if (angle > 90)
     {
-        angle = 180;
+        angle = 90;
     }
     else if (angle < 0)
     {
         angle = 0;
     }
 
-    // updated values: min is 544, max 2400 (see ServoTimer2 doc)
-    float coeff = (2400.0 - 544.0) / 180.0;
-    motor.write(544 + angle * coeff);
+    if (angle != currentAngle)
+    {
+        safeAttach();
+        float coeff = (2400.0 - 544.0) / 180.0;
+        motor.write(544 + angle * coeff);
+        currentAngle = angle;
+        currentPercent = map(angle, 0, 90, 0, 100);
+    }
 }
 
 void ValveMotor::open()
 {
-
-    motor.attach(_pin);
     setAngle(90);
-    delay(1000);
 }
 
 void ValveMotor::half()
 {
-    motor.attach(_pin);
     setAngle(45);
-    delay(1000);
-    motor.detach();
 }
 
 void ValveMotor::close()
 {
-    motor.attach(_pin);
     setAngle(0);
-    delay(1000);
-    motor.detach();
 }
 
 void ValveMotor::manuallySetAngle(int angle)
 {
-    motor.attach(_pin);
     setAngle(angle);
-    delay(1000);
-    motor.detach();
+}
+
+int ValveMotor::getOpeningPercent()
+{
+    return currentPercent;
+}
+
+int ValveMotor::getCurrentAngle()
+{
+    return currentAngle;
 }

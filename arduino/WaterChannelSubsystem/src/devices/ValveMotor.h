@@ -13,11 +13,18 @@ public:
     void close();
     void half();
     void manuallySetAngle(int angle);
+    int getOpeningPercent();
+    int getCurrentAngle();
 
 private:
     int _pin;
     ServoTimer2 motor;
+    int currentAngle;
+    int currentPercent;
     void setAngle(int angle);
+    bool isAttached();
+    void safeAttach();
+    void safeDetach();
 };
 
 #endif
