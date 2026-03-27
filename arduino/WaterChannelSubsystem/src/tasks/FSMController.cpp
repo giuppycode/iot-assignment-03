@@ -19,6 +19,8 @@ FSMController::FSMController(DisplayLcd *pDisplay, ValveMotor *pValveMotor, Pote
 
 void FSMController::tick()
 {
+    int valvePercent = pValveMotor->getOpeningPercent();
+
     switch (state)
     {
     case AUTOMATIC:
@@ -27,8 +29,7 @@ void FSMController::tick()
             pContext->setAutomatic();
             if (this->checkAndSetJustEntered())
             {
-                Logger.log("[FSM] Entered AUTOMATIC");
-                pDisplay->showMessage("AUTOMATIC");
+                conditionStartTime = 0;
                 pValveMotor->close();
             }
             if (pButton->isPressed())
@@ -39,12 +40,19 @@ void FSMController::tick()
             float currentDistance = pContext->getCurrentDistance();
             if (currentDistance > L1 && currentDistance < L2)
             {
-                pValveMotor->half(); // al 50%
+                pValveMotor->half();
             }
             else if (currentDistance >= L2)
             {
-                pValveMotor->open(); // al 100%
+                pValveMotor->open();
             }
+            else
+            {
+                pValveMotor->close();
+            }
+
+            valvePercent = pValveMotor->getOpeningPercent();
+            pDisplay->showMessage("AUTOMATIC", "Valve: " + String(valvePercent) + "%");
         }
         else
         {
@@ -59,17 +67,18 @@ void FSMController::tick()
             pContext->setManual();
             if (this->checkAndSetJustEntered())
             {
-                Logger.log("[FSM] Entered MANUAL");
-                pDisplay->showMessage("MANUAL");
+                conditionStartTime = 0;
             }
             if (pButton->isPressed())
             {
                 setState(AUTOMATIC);
             }
             int potValue = pContext->getPotValue();
-            int angle = (int)(potValue * 180); // Converti il valore del
+            int angle = map(potValue, 0, 1023, 0, 90);
 
             pValveMotor->manuallySetAngle(angle);
+            valvePercent = pValveMotor->getOpeningPercent();
+            pDisplay->showMessage("MANUAL", "Valve: " + String(valvePercent) + "%");
         }
         else
         {
@@ -85,8 +94,9 @@ void FSMController::tick()
             if (this->checkAndSetJustEntered())
             {
                 conditionStartTime = 0;
-                pDisplay->showMessage("UNCONNECTED");
             }
+            valvePercent = pValveMotor->getOpeningPercent();
+            pDisplay->showMessage("UNCONNECTED", "Valve: " + String(valvePercent) + "%");
         }
         else if (pContext->isAutomatic())
         {
