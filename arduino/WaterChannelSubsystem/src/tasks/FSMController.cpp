@@ -52,6 +52,7 @@ void FSMController::tick()
                 pValveMotor->close(); // al 0%
                 percentage = 0;
             }
+            pContext->setValvePercent(percentage);
             pDisplay->showModeAndPercentage("AUTOMATIC", percentage);
         }
         else
@@ -77,6 +78,7 @@ void FSMController::tick()
             int angle = (int)((1.0 - potValue) * 90); // Inverted: 0% pot = 90° (closed), 100% pot = 0° (open)
             int percentage = (int)(potValue * 100); // potValue 0-1 maps to 0-100%
 
+            pContext->setValvePercent(percentage);
             pValveMotor->manuallySetAngle(angle);
             pDisplay->showModeAndPercentage("MANUAL", percentage);
         }
