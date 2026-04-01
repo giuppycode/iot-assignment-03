@@ -27,6 +27,25 @@ public class DataService extends AbstractVerticle {
     private String mode = "AUTOMATIC";
     private float valvePercent = 0;
 
+    private ModeChangeCallback modeChangeCallback;
+    private ValveChangeCallback valveChangeCallback;
+
+    public interface ModeChangeCallback {
+        void onModeChanged(String newMode);
+    }
+
+    public interface ValveChangeCallback {
+        void onValveChanged(int percent);
+    }
+
+    public void setModeChangeCallback(ModeChangeCallback callback) {
+        this.modeChangeCallback = callback;
+    }
+
+    public void setValveChangeCallback(ValveChangeCallback callback) {
+        this.valveChangeCallback = callback;
+    }
+
     public DataService(int port) {
         values = new LinkedList<>();
         this.port = port;
@@ -122,8 +141,14 @@ public class DataService extends AbstractVerticle {
     private void handleSetStatus(RoutingContext ctx) {
         JsonObject body = ctx.getBodyAsJson();
         if (body == null) { sendError(400, ctx.response()); return; }
-        mode = body.getString("mode", mode);
-        log("Mode set to: " + mode);
+        String newMode = body.getString("mode", mode);
+        if (!newMode.equals(mode)) {
+            log("Mode changed: " + mode + " -> " + newMode);
+            mode = newMode;
+            if (modeChangeCallback != null) {
+                modeChangeCallback.onModeChanged(newMode);
+            }
+        }
         ctx.response().setStatusCode(200).end();
     }
 
@@ -138,6 +163,9 @@ public class DataService extends AbstractVerticle {
         if (body == null) { sendError(400, ctx.response()); return; }
         valvePercent = body.getFloat("percent", valvePercent);
         log("Valve set to: " + valvePercent + "%");
+        if (valveChangeCallback != null) {
+            valveChangeCallback.onValveChanged((int) valvePercent);
+        }
         ctx.response().setStatusCode(200).end();
     }
 
