@@ -1,12 +1,13 @@
 package esiot.backend;
 
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+
 import jssc.SerialPort;
 import jssc.SerialPortEvent;
 import jssc.SerialPortEventListener;
 import jssc.SerialPortException;
 import jssc.SerialPortList;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
 
 public class SerialProtocol implements SerialPortEventListener {
     private SerialPort serialPort;
@@ -14,6 +15,7 @@ public class SerialProtocol implements SerialPortEventListener {
     private final BlockingQueue<String> messageQueue = new LinkedBlockingQueue<>();
     private SerialCallback callback;
     private boolean initialized = false;
+    private int currentValve = -1;
 
     public SerialProtocol() {}
 
@@ -133,7 +135,10 @@ public class SerialProtocol implements SerialPortEventListener {
         }
 
         if ("MANUAL".equals(arduinoMode)) {
-            callback.onValveChanged(valve);
+            if (valve != currentValve) { // Evita il loop infinito inviando solo i cambiamenti
+                currentValve = valve;
+                callback.onValveChanged(valve);
+            }
         }
     }
 

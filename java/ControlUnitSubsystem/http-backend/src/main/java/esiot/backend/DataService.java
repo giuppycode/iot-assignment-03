@@ -161,11 +161,16 @@ public class DataService extends AbstractVerticle {
     private void handleSetValve(RoutingContext ctx) {
         JsonObject body = ctx.getBodyAsJson();
         if (body == null) { sendError(400, ctx.response()); return; }
-        valvePercent = body.getFloat("percent", valvePercent);
+        // --- INIZIO MODIFICA ---
+    float newValvePercent = body.getFloat("percent", valvePercent);
+    if (newValvePercent != valvePercent) { // Controlla se il valore è davvero cambiato
+        valvePercent = newValvePercent;
         log("Valve set to: " + valvePercent + "%");
         if (valveChangeCallback != null) {
             valveChangeCallback.onValveChanged((int) valvePercent);
         }
+    }
+    // --- FINE MODIFICA ---
         ctx.response().setStatusCode(200).end();
     }
 
