@@ -2,17 +2,14 @@ package esiot.backend;
 
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
-import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 
 public class CUSService {
     static final int PORT = 8080;
-    static final long TIMEOUT_MS = 3000;
 
     public static void main(String[] args) throws Exception {
         Vertx vertx = Vertx.vertx();
         DataService service = new DataService(PORT);
-        vertx.deployVerticle(service);
 
         WebClient client = WebClient.create(vertx);
         HTTPProtocol httpProtocol = new HTTPProtocol(client, PORT);
@@ -41,31 +38,23 @@ public class CUSService {
         });
         serialProtocol.sendMode("AUTOMATIC");
 
-        vertx.setPeriodic(1000, id -> {
-            long elapsed = System.currentTimeMillis() - mqttProtocol.getLastReceivedTime();
+        service.setModeChangeCallback(newMode -> {
+            System.out.println("[CUS] Mode changed from frontend: " + newMode);
+            serialProtocol.sendMode(newMode);
+        });
 
+        service.setValveChangeCallback(valve -> {
+            System.out.println("[CUS] Valve changed from frontend: " + valve + "%");
+            serialProtocol.sendValve(valve);
+        });
+
+        vertx.deployVerticle(service);
+
+        vertx.setPeriodic(1000, id -> {
             httpProtocol.getStatus(new HTTPProtocol.Callback<String>() {
                 @Override
                 public void onSuccess(String apiMode) {
-                    boolean timedOut = elapsed > TIMEOUT_MS;
-                    String targetMode = (timedOut || "UNCONNECTED".equals(apiMode))
-                            ? "UNCONNECTED" : apiMode;
-
-                    if (timedOut) {
-                        System.out.println("[MQTT] Status: unreachable ("
-                                + elapsed / 1000 + "s without data)");
-                    } else {
-                        System.out.println("[MQTT] Status: connected, mode=" + targetMode);
-                    }
-
-                    serialProtocol.sendMode(targetMode);
-
-                    if (!serialProtocol.getCurrentMode().equals(targetMode)) {
-                        System.out.println("[SERIAL] Pushed mode to Arduino: "
-                                + serialProtocol.getCurrentMode() + " → " + targetMode);
-                    }
-
-                    if ("AUTOMATIC".equals(targetMode)) {
+                    if ("AUTOMATIC".equals(apiMode)) {
                         httpProtocol.getData(new HTTPProtocol.Callback<JsonArray>() {
                             @Override
                             public void onSuccess(JsonArray arr) {
