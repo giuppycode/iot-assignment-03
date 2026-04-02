@@ -108,6 +108,9 @@ function setStatus(mode) {
   const isManual = mode === "MANUAL";
   sliderWrap.style.opacity = isManual ? "1" : "0.3";
   sliderWrap.style.pointerEvents = isManual ? "auto" : "none";
+  
+  document.getElementById("btnAuto").disabled = (mode === "AUTOMATIC");
+  document.getElementById("btnManual").disabled = (mode === "MANUAL");
 }
 
 function setConnected(ok) {
