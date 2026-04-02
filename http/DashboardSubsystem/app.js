@@ -95,6 +95,8 @@ async function fetchValve() {
     const pct = Math.round(data.percent);
     document.getElementById("valveValue").textContent = pct + "%";
     document.getElementById("valveFill").style.width = pct + "%";
+    document.getElementById("valveSlider").value = pct;
+    document.getElementById("sliderValue").textContent = pct + "%";
   } catch {}
 }
 
@@ -124,27 +126,26 @@ async function setMode(mode) {
       body: JSON.stringify({ mode }),
     });
     setStatus(mode);
+    if (mode === "MANUAL") {
+      fetchValve();
+    }
   } catch {
     alert("CUS non raggiungibile");
   }
 }
 
 function updateSliderValue(slider) {
-  document.getElementById("sliderValue").textContent = slider.value + "%";
+  const pct = parseInt(slider.value);
+  document.getElementById("sliderValue").textContent = pct + "%";
+  
+  fetch(API + "/api/valve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ percent: pct }),
+  }).catch(() => {});
 }
 
-async function sendValve() {
-  const pct = parseInt(document.getElementById("valveSlider").value);
-  try {
-    await fetch(API + "/api/valve", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ percent: pct }),
-    });
-  } catch {
-    alert("CUS non raggiungibile");
-  }
-}
+async function sendValve() {}
 
 function startPolling() {
   setInterval(fetchLevel, 1000);
