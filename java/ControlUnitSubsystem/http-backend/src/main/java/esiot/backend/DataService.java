@@ -124,7 +124,7 @@ public class DataService extends AbstractVerticle {
 	private void handleGetStatus(RoutingContext ctx) {
     JsonObject obj = new JsonObject();
     String effectiveMode = mode;
-    if (System.currentTimeMillis() - lastReceived > TIMEOUT_MS) {
+    if (mode.equals("AUTOMATIC") && System.currentTimeMillis() - lastReceived > TIMEOUT_MS) {
         effectiveMode = "UNCONNECTED";
     }
     obj.put("mode", effectiveMode);
