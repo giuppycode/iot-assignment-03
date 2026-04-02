@@ -58,6 +58,7 @@ void FSMController::tick()
                 percentage = 0;
             }
             pDisplay->showModeAndPercentage("AUTOMATIC", percentage);
+            MsgService.sendMsg("VALVE:" + String(percentage));
         }
         else
         {
