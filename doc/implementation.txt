@@ -1,0 +1,120 @@
+# Caratteristiche Implementative del Progetto IoT
+
+## Architettura Generale
+
+Il sistema è composto da 4 sottosistemi che comunicano tra loro:
+- ESP32 (Tank Monitoring) ↔ MQTT → Java Backend
+- Arduino (Water Channel) ↔ Seriale → Java Backend
+- Java Backend → ESP32 + Arduino (controllo)
+- Dashboard HTTP → Java Backend (monitoraggio)
+
+---
+
+## 1. ESP32 - Tank Monitoring Subsystem
+
+### Task-Based Architecture (cooperative scheduler)
+- Task base class (Task.h): supporta task periodici (init(period)) e aperiodici (init())
+- Scheduler: usa TimerOne library per interrupt hardware, base period fisso di 50ms
+- 3 task: SensorTask (200ms), PublishTask (2000ms), ConnectionTask (1000ms)
+
+### FSM Implementation
+- Enum-based state machine in ConnectionTask: CHECKING, RECONNECTING_WIFI, RECONNECTING_MQTT
+- Pattern justEntered + checkAndSetJustEntered() per azioni di entry
+- Context come repository condiviso (thread-safe grazie a cooperative scheduling single-thread)
+
+### Device Abstraction
+- Interfacce astratte: ProximitySensor, Light
+- Implementazioni concrete: Sonar (HC-SR04 con compensazione temperatura), Led
+- TankMonitoringPlatform: facade pattern per inizializzazione hardware
+
+### Comunicazione
+- MQTT: PubSubClient library verso broker pubblico
+- MsgService: serial-based message passing con pattern matching
+
+### Librerie (platformio.ini)
+- knolleary/PubSubClient @ ^2.8
+- paulstoffregen/TimerOne @ ^1.2
+
+---
+
+## 2. Arduino - Water Channel Subsystem
+
+### Task-Based Architecture
+- Task base class identico a ESP32
+- Scheduler: TimerOne, base period 50ms, max 50 task
+- 3 task: FSMController (75ms), PotReader (200ms), SerialTask (50ms)
+
+### FSM Implementation
+- Enum-based FSM in FSMController:
+  - AUTOMATIC, MANUAL, UNCONNECTED
+  - Soglie: L1=20% (50% apertura), L2=30% (100% apertura)
+  - Mapping potenziometro invertito (0%→90°, 100%→0°)
+
+### Device Abstraction
+- WaterChannelPlatform: factory pattern per tutti i device
+- ValveMotor: wrapping ServoTimer2 (custom library Timer2)
+- DisplayLcd: LiquidCrystal_I2C
+- Button: interfaccia astratta + implementazione
+- Pot: lettura analogica normalizzata 0.0-1.0
+
+### Comunicazione
+- MsgService: seriale 115200 baud, protocollo MODE,VALVE:XX
+- Pattern matching con classe Pattern
+
+### Librerie
+- TimerOne
+- LiquidCrystal_I2C
+- EnableInterrupt
+- ServoTimer2 (custom)
+
+---
+
+## 3. Java Backend - Control Unit Subsystem
+
+### Framework
+- Vert.x (4.2.6): event-driven, non-blocking I/O
+- Vert.x Web: server HTTP
+- Vert.x Web Client: HTTP client interno
+
+### Protocolli
+- SerialProtocol: jssc library, SerialPortEventListener pattern, BlockingQueue per decoupling thread
+- MQTTProtocol: Eclipse Paho client, callback-based, timestamp tracking per freshness
+- HTTPProtocol: Vert.x WebClient, non-blocking con futures/callbacks
+
+### Data Service (Vert.x Verticle)
+- REST API: /api/data, /api/status, /api/valve
+- In-memory circular buffer (LinkedList, max 10 elementi)
+- Callback per propagazione eventi: ModeChangeCallback, ValveChangeCallback
+
+### Design Patterns
+- Callback/Listener per operazioni async
+- Observer per event propagation
+- Message Queue (BlockingQueue) per thread decoupling
+- Protocol Adapter per bridge tra tecnologie diverse
+- Façade (CUSService) per orchestrazione
+
+### Librerie (pom.xml)
+- vertx-core, vertx-web, vertx-web-client, vertx-mqtt
+- org.eclipse.paho.client.mqttv3
+- jssc (serial communication)
+- slf4j-api (logging)
+
+---
+
+## 4. Dashboard HTTP
+
+- Pure JavaScript + Chart.js per grafico
+- Polling ogni 1s verso API Java backend
+- Visualizzazione: livello serbatoio, stato sistema, percentuale valvola
+- Controllo modalità e apertura valvola manuale
+
+---
+
+## Pattern Comuni a Tutti i Sottosistemi
+
+1. Task-based cooperative scheduling (identico pattern Arduino/ESP32)
+2. Enum-based FSM leggera
+3. Context/Shared State per comunicazione inter-task
+4. Facade pattern per astrazione hardware
+5. Interface segregation per device driver
+6. Message passing asincrono (serial/MQTT)

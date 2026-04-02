@@ -1,0 +1,264 @@
+\documentclass[12pt, a4paper]{article}
+
+% Pacchetti base
+\usepackage[utf8]{inputenc}
+\usepackage[italian]{babel}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\geometry{a4paper, margin=2.5cm}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue},
+  commentstyle=\color{gray},
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!5}
+}
+
+\title{\textbf{Assignment 03 - Smart Tank Monitoring System}}
+\author{Cattolico Giuseppe, Muller Arthur}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% ─────────────────────────────────────────────
+\section{Introduzione e Obiettivo}
+
+Il progetto \textit{Smart Tank Monitoring System} ha l'obiettivo di realizzare un sistema IoT distribuito per il monitoraggio del livello dell'acqua piovana in un serbatoio e per la gestione automatizzata del canale di drenaggio. Il sistema è suddiviso in quattro sottosistemi che cooperano attraverso protocolli eterogenei: MQTT, comunicazione seriale e HTTP.
+
+\begin{itemize}
+    \item \textbf{TMS} (Tank Monitoring Subsystem) -- ESP32: acquisisce il livello del serbatoio e lo trasmette via MQTT.
+    \item \textbf{WCS} (Water Channel Subsystem) -- Arduino UNO: controlla la valvola del canale tramite servomotore, reagendo ai comandi del backend.
+    \item \textbf{CUS} (Control Unit Subsystem) -- Backend Java: orchestra l'intero sistema, applicando la politica di controllo e servendo le API HTTP.
+    \item \textbf{DBS} (Dashboard Subsystem) -- Frontend Web: fornisce un'interfaccia per operatori remoti per monitorare e interagire col sistema.
+\end{itemize}
+
+Il sistema opera in due modalità: \texttt{AUTOMATIC}, in cui il backend decide autonomamente l'apertura della valvola in base al livello dell'acqua, e \texttt{MANUAL}, in cui un operatore controlla direttamente la valvola tramite potenziometro (WCS) o dashboard (DBS). La modalità di avvio è \texttt{AUTOMATIC}.
+
+% ─────────────────────────────────────────────
+\newpage
+\section{Architettura Hardware}
+
+\subsection{Schema Elettrico e Breadboard}
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.85\textwidth]{tinkercad.png}
+    \caption{Rappresentazione della breadboard e schema circuitale (TMS e WCS).}
+    \label{fig:schema_hw}
+\end{figure}
+
+\subsection{Componenti e Pin Mapping -- TMS (ESP32)}
+
+\begin{itemize}
+    \item \textbf{Sonar HC-SR04 -- \texttt{Trig: Pin 5, Echo: Pin 18}:} Misura il livello dell'acqua nel serbatoio tramite impulsi ultrasonici. Il valore di distanza viene periodicamente campionato e inviato al CUS via MQTT.
+    \item \textbf{LED Verde -- \texttt{Pin 17}:} Acceso quando la connessione Wi-Fi e MQTT è operativa e l'invio dei dati avviene correttamente.
+    \item \textbf{LED Rosso -- \texttt{Pin 19}:} Acceso in caso di problemi di rete (Wi-Fi o MQTT non disponibili), segnalando all'operatore locale uno stato di errore.
+\end{itemize}
+
+\subsection{Componenti e Pin Mapping -- WCS (Arduino UNO)}
+
+\begin{itemize}
+    \item \textbf{Servomotore (valvola) -- \texttt{Pin 10}:} Controlla l'apertura del canale idraulico. L'intervallo operativo va da $0°$ (valvola chiusa, 0\% apertura) a $90°$ (valvola completamente aperta, 100\% apertura). Utilizza la libreria \texttt{ServoTimer2} per evitare conflitti con \texttt{TimerOne}.
+    \item \textbf{Potenziometro -- \texttt{Pin A0}:} Permette il controllo manuale dell'apertura della valvola in modalità \texttt{MANUAL}. Il valore analogico letto viene normalizzato nell'intervallo $[0.0, 1.0]$, con mapping invertito ($0\% \rightarrow 90°$, $100\% \rightarrow 0°$) per rispettare la meccanica del sistema.
+    \item \textbf{Pulsante Tactile -- \texttt{Pin 8}:} Commuta tra le modalità \texttt{AUTOMATIC} e \texttt{MANUAL}. Alla prima pressione si entra in \texttt{MANUAL}; alla seconda si torna in \texttt{AUTOMATIC}.
+    \item \textbf{Display LCD I2C (16x2) -- \texttt{Indirizzo 0x27}:} Mostra il livello attuale di apertura della valvola in percentuale e la modalità operativa corrente (\texttt{AUTOMATIC}, \texttt{MANUAL} o \texttt{UNCONNECTED}).
+\end{itemize}
+
+% ─────────────────────────────────────────────
+\section{Architettura Software}
+
+\subsection{Struttura Generale del Sistema}
+
+Tutti i sottosistemi embedded (TMS ed WCS) condividono lo stesso pattern architetturale: uno scheduler cooperativo basato su interrupt hardware (libreria \texttt{TimerOne}) con periodo base di \textbf{50ms}, task periodici definiti come sottoclassi di \texttt{Task}, e un oggetto \texttt{Context} come repository condiviso dello stato tra i task. Il backend Java è basato su \textbf{Vert.x} con architettura event-driven e comunicazione asincrona non bloccante.
+
+
+% ─────────────────────────────────────────────
+\section{TMS -- Tank Monitoring Subsystem (ESP32)}
+
+\subsection{Task Concorrenti}
+
+Il TMS è strutturato in tre task cooperativi gestiti dallo scheduler:
+
+\begin{itemize}
+    \item \textbf{SensorTask (periodo: 200ms):} Campiona il sonar HC-SR04 applicando una compensazione della temperatura per aumentare la precisione della misura. Il valore letto viene salvato nel \texttt{Context} condiviso, rendendolo disponibile al \texttt{PublishTask}.
+
+    \item \textbf{PublishTask (periodo: 2000ms):} Legge il livello del serbatoio dal \texttt{Context} e lo pubblica sul broker MQTT. Aggiorna il LED verde o rosso in base all'esito della pubblicazione.
+
+    \item \textbf{ConnectionTask (periodo: 1000ms):} Implementa una FSM a tre stati per la gestione della connettività. Si occupa di rilevare e recuperare automaticamente la perdita della connessione Wi-Fi o MQTT.
+\end{itemize}
+
+\subsection{FSM di Connettività (ConnectionTask)}
+
+La macchina a stati gestisce tre stati distinti:
+
+\begin{itemize}
+    \item \texttt{CHECKING}: stato nominale. Verifica periodicamente che la connessione Wi-Fi e MQTT sia attiva. Se viene rilevata una disconnessione, transita nel rispettivo stato di riconnessione.
+    \item \texttt{RECONNECTING\_WIFI}: tenta il ripristino della connessione Wi-Fi. Al successo, transita verso \texttt{RECONNECTING\_MQTT}.
+    \item \texttt{RECONNECTING\_MQTT}: tenta la riconnessione al broker MQTT. Al successo, ritorna in \texttt{CHECKING}.
+\end{itemize}
+
+Le azioni di \textit{entry} in ogni stato sono gestite tramite il pattern \texttt{justEntered} + \texttt{checkAndSetJustEntered()}, che garantisce l'esecuzione unica delle operazioni di inizializzazione alla prima iterazione del task nello stato.
+
+\subsection{Astrazione Hardware}
+
+I device fisici sono nascosti dietro interfacce astratte (\texttt{ProximitySensor}, \texttt{Light}), con implementazioni concrete (\texttt{Sonar}, \texttt{Led}). La classe \texttt{TankMonitoringPlatform} funge da \textit{facade} per l'inizializzazione e l'accesso centralizzato all'hardware.
+
+% ─────────────────────────────────────────────
+\section{WCS -- Water Channel Subsystem (Arduino)}
+
+\subsection{Task Concorrenti}
+
+Il WCS è strutturato in tre task cooperativi:
+
+\begin{itemize}
+    \item \textbf{FSMController (periodo: 75ms):} Task principale che implementa la FSM dell'intero sottosistema. Gestisce le transizioni tra le modalità operative, aggiorna la valvola e il display LCD, e reagisce agli input del pulsante e ai comandi seriali.
+
+    \item \textbf{PotReader (periodo: 200ms):} Campiona il valore del potenziometro e lo normalizza nell'intervallo $[0.0, 1.0]$, salvandolo nel \texttt{Context}. Attivo solo quando la FSM si trova in modalità \texttt{MANUAL}.
+
+    \item \textbf{SerialTask (periodo: 50ms):} Gestisce la comunicazione bidirezionale con il CUS tramite porta seriale a 115200 baud. Riceve comandi di modalità e percentuale di apertura valvola, e trasmette lo stato corrente del WCS.
+\end{itemize}
+
+\subsection{FSM del Water Channel (FSMController)}
+
+La macchina a stati gestisce tre stati operativi:
+
+\begin{itemize}
+    \item \texttt{AUTOMATIC}: la valvola è controllata interamente dal CUS tramite comandi seriali. Il display mostra la percentuale di apertura corrente e la dicitura \texttt{AUTOMATIC}. La pressione del pulsante provoca la transizione in \texttt{MANUAL}.
+
+    \item \texttt{MANUAL}: l'operatore locale controlla direttamente la valvola tramite il potenziometro. Il display mostra la percentuale corrente e la dicitura \texttt{MANUAL}. La pressione del pulsante riporta alla modalità \texttt{AUTOMATIC}. In questo stato, il WCS notifica al CUS la modalità attiva per sincronizzare il sistema distribuito.
+
+    \item \texttt{UNCONNECTED}: il CUS non è raggiungibile (timeout seriale). Il display mostra \texttt{UNCONNECTED}. Il sistema mantiene l'ultima posizione nota della valvola fino al ripristino della connessione.
+\end{itemize}
+
+\textbf{Soglie di controllo automatico (CUS → WCS):}
+\begin{itemize}
+    \item Livello $> L_1$ (20\%) per più di $T_1$ secondi $\rightarrow$ valvola al \textbf{50\%}.
+    \item Livello $> L_2$ (30\%) $\rightarrow$ valvola al \textbf{100\%} immediatamente.
+    \item Livello rientrato sotto la soglia $\rightarrow$ valvola richiusa.
+\end{itemize}
+
+\subsection{Comunicazione Seriale Asincrona -- MsgService}
+
+La comunicazione con il CUS avviene in modo non bloccante tramite la classe \texttt{MsgService}. I caratteri in arrivo vengono accumulati in un buffer; quando viene rilevato il terminatore \texttt{\textbackslash n}, la stringa è impacchettata in un oggetto \texttt{Msg} e un flag \texttt{msgAvailable} viene alzato. Il \texttt{SerialTask} verifica il flag ad ogni ciclo e processa il messaggio senza mai bloccarsi in attesa. Il protocollo adottato è basato su stringhe del tipo \texttt{MODE,VALVE:XX}, dove \texttt{XX} rappresenta la percentuale di apertura target.
+
+% ─────────────────────────────────────────────
+\section{CUS -- Control Unit Subsystem (Java/Vert.x)}
+
+\subsection{Framework e Architettura}
+
+Il backend è sviluppato con \textbf{Vert.x 4.2.6}, un framework event-driven e non bloccante per la JVM. Vert.x permette di gestire simultaneamente le tre interfacce di comunicazione del CUS (MQTT, seriale, HTTP) senza ricorrere a thread multipli bloccanti, grazie al modello basato su \textit{Verticle} e \textit{Event Bus}.
+
+\subsection{Protocolli e Classi di Comunicazione}
+
+\begin{itemize}
+    \item \textbf{MQTTProtocol}: utilizza il client \textit{Eclipse Paho} in modalità callback. Sottoscrive il topic pubblicato dal TMS e aggiorna il timestamp dell'ultimo dato ricevuto per rilevare situazioni di \texttt{UNCONNECTED} (timeout $T_2$).
+
+    \item \textbf{SerialProtocol}: utilizza la libreria \texttt{jssc} con un \texttt{SerialPortEventListener} per la ricezione asincrona dei dati dal WCS. Una \texttt{BlockingQueue} funge da buffer di decoupling tra il thread seriale e il loop Vert.x, garantendo thread-safety.
+
+    \item \textbf{HTTPProtocol}: esposto tramite \texttt{Vert.x Web}, serve le API REST consumate dalla dashboard. Utilizza \texttt{Vert.x WebClient} per eventuali chiamate HTTP interne in modalità non bloccante con futures/callback.
+\end{itemize}
+
+\subsection{API REST (DataService Verticle)}
+
+Il \texttt{DataService} espone i seguenti endpoint HTTP:
+
+\begin{itemize}
+    \item \texttt{GET /api/data} -- restituisce le ultime $N$ misurazioni del livello del serbatoio (buffer circolare in memoria, \texttt{LinkedList} con massimo 10 elementi).
+    \item \texttt{GET /api/status} -- restituisce lo stato corrente del sistema: \texttt{AUTOMATIC}, \texttt{MANUAL} o \texttt{UNCONNECTED}.
+    \item \texttt{POST /api/valve} -- permette alla dashboard di impostare la percentuale di apertura della valvola in modalità \texttt{MANUAL}.
+\end{itemize}
+
+\subsection{Logica di Controllo Automatico}
+
+Il \texttt{CUS} implementa la policy di controllo del livello secondo le seguenti regole:
+
+\begin{enumerate}
+    \item Se il livello supera $L_1$ per più di $T_1$ secondi, il CUS invia al WCS il comando di aprire la valvola al 50\%. La valvola viene richiusa quando il livello scende sotto $L_1$.
+    \item Se il livello supera $L_2$ (indipendentemente dal tempo), la valvola viene aperta al 100\% immediatamente. Viene richiusa quando il livello scende sotto $L_2$.
+    \item Se non vengono ricevuti dati dal TMS per più di $T_2$ secondi, il sistema transita nello stato \texttt{UNCONNECTED}, sospendendo le operazioni automatiche. Il ripristino avviene non appena i dati tornano disponibili.
+\end{enumerate}
+
+\subsection{Design Pattern Adottati}
+
+\begin{itemize}
+    \item \textbf{Callback/Listener}: per operazioni asincrone su MQTT e seriale.
+    \item \textbf{Observer}: per la propagazione degli eventi di cambio modalità (\texttt{ModeChangeCallback}) e cambio valvola (\texttt{ValveChangeCallback}).
+    \item \textbf{Message Queue} (\texttt{BlockingQueue}): per il disaccoppiamento tra il thread seriale di \texttt{jssc} e il thread principale Vert.x.
+    \item \textbf{Protocol Adapter}: ciascun protocollo (MQTT, seriale, HTTP) è incapsulato in una classe dedicata che adatta le chiamate native all'interfaccia del CUS.
+    \item \textbf{Façade} (\texttt{CUSService}): centralizza l'orchestrazione dei tre protocolli, nascondendo la complessità interna.
+\end{itemize}
+
+% ─────────────────────────────────────────────
+\section{DBS -- Dashboard Subsystem (Web)}
+
+La dashboard è implementata come \textbf{applicazione web statica} (HTML + CSS + JavaScript puro), senza dipendenze da framework pesanti. Effettua polling verso le API del CUS ogni secondo.
+
+\subsection{Visualizzazione}
+
+\begin{itemize}
+    \item \textbf{Grafico livello serbatoio}: realizzato con la libreria \texttt{Chart.js}, mostra le ultime $N$ misurazioni ricevute dal CUS in forma di grafico a linea aggiornato in tempo reale.
+    \item \textbf{Percentuale apertura valvola}: indicatore numerico e/o barra di progressione che riflette lo stato attuale della valvola.
+    \item \textbf{Stato del sistema}: badge testuale colorato che mostra \texttt{AUTOMATIC}, \texttt{MANUAL}, \texttt{UNCONNECTED} o \texttt{NOT AVAILABLE} (quest'ultimo quando il CUS non è raggiungibile).
+\end{itemize}
+
+\subsection{Controllo}
+
+\begin{itemize}
+    \item \textbf{Pulsante modalità}: commuta tra \texttt{AUTOMATIC} e \texttt{MANUAL} inviando una richiesta \texttt{POST} all'endpoint \texttt{/api/status} del CUS.
+    \item \textbf{Slider valvola}: visibile e attivo solo in modalità \texttt{MANUAL}. Permette di impostare la percentuale di apertura desiderata, inviando la richiesta \texttt{POST /api/valve} al backend.
+\end{itemize}
+
+% ─────────────────────────────────────────────
+\section{Pattern Comuni ai Sottosistemi Embedded}
+
+I sottosistemi TMS (ESP32) e WCS (Arduino) condividono un'identica architettura interna, che garantisce coerenza, riutilizzabilità e facilità di manutenzione:
+
+\begin{enumerate}
+    \item \textbf{Cooperative Task Scheduler}: scheduler basato su interrupt \texttt{TimerOne} con periodo base di 50ms. Ogni task dichiara il proprio periodo e viene invocato esclusivamente quando il suo intervallo è scaduto. Nessun task è bloccante.
+
+    \item \textbf{FSM Enum-Based}: le macchine a stati sono implementate tramite \texttt{enum} C++ e blocchi \texttt{switch/case}, senza overhead di ereditarietà. Le azioni di entry vengono eseguite una sola volta grazie al pattern \texttt{justEntered}.
+
+    \item \textbf{Context / Shared State}: un unico oggetto \texttt{Context} per sottosistema funge da repository condiviso. I task non comunicano mai direttamente tra loro: scrivono e leggono esclusivamente tramite il \texttt{Context}, eliminando ogni accoppiamento diretto.
+
+    \item \textbf{Façade Pattern} (\texttt{Platform}): le classi \texttt{TankMonitoringPlatform} e \texttt{WaterChannelPlatform} centralizzano l'inizializzazione e l'accesso all'hardware, nascondendo i dettagli di configurazione dei pin.
+
+    \item \textbf{Interface Segregation}: ogni device fisico è rappresentato da un'interfaccia astratta (\texttt{Light}, \texttt{ProximitySensor}, \texttt{Button}) con una o più implementazioni concrete. Questo permette di sostituire o simulare i componenti hardware senza modificare la logica dei task.
+
+    \item \textbf{Message Passing Asincrono}: la comunicazione con il backend avviene tramite \texttt{MsgService}, che garantisce ricezione non bloccante via buffer e flag di disponibilità.
+\end{enumerate}
+
+% ─────────────────────────────────────────────
+\section{Difficoltà Riscontrate e Conclusioni}
+
+\subsection{Difficoltà Riscontrate}
+
+\begin{itemize}
+    \item \textbf{Conflitti tra librerie Timer su Arduino:} L'utilizzo simultaneo di \texttt{TimerOne} (per lo scheduler) e della libreria standard \texttt{Servo} ha generato conflitti sui timer hardware dell'ATmega328P. Il problema è stato risolto adottando \texttt{ServoTimer2}, che utilizza \texttt{Timer2} lasciando \texttt{Timer1} libero per lo scheduler.
+
+    \item \textbf{Sincronizzazione thread seriale e Vert.x:} La libreria \texttt{jssc} esegue i callback di ricezione seriale in un thread separato rispetto al loop Vert.x. Questo ha reso necessario l'uso di una \texttt{BlockingQueue} per il passaggio sicuro dei messaggi tra i due contesti di esecuzione, evitando race condition.
+
+    \item \textbf{Gestione dello stato UNCONNECTED distribuito:} Coordinare la transizione in \texttt{UNCONNECTED} in modo coerente tra CUS (timeout MQTT), WCS (timeout seriale) e DBS (CUS non raggiungibile) ha richiesto un'attenta definizione dei timeout e dei meccanismi di ripristino per ciascun sottosistema.
+
+    \item \textbf{Latenza del polling dashboard:} Il polling HTTP ogni secondo introduce una latenza percettibile nella visualizzazione degli aggiornamenti. Per un sistema di produzione si valuterebbe l'adozione di WebSocket o Server-Sent Events per aggiornamenti in push.
+\end{itemize}
+
+\subsection{Conclusioni}
+
+Lo sviluppo dello \textit{Smart Tank Monitoring System} ha dimostrato come un'architettura distribuita e modulare -- basata su task cooperativi, FSM leggere e design pattern consolidati -- permetta di realizzare un sistema IoT reattivo e manutenibile anche con risorse hardware limitate.
+
+La separazione netta delle responsabilità tra i quattro sottosistemi ha semplificato lo sviluppo parallelo e il debugging: ciascun componente poteva essere testato indipendentemente prima dell'integrazione finale. I pattern comuni condivisi tra TMS e WCS hanno ridotto significativamente la duplicazione del codice e reso immediata la comprensione di entrambi i firmware.
+
+Il sistema finale rispetta i requisiti funzionali: monitoraggio continuo del livello, controllo automatico e manuale della valvola, rilevamento di perdita di connettività e dashboard web in tempo reale.
+
+\end{document}
