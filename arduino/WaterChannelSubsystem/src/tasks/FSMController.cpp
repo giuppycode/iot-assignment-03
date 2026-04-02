@@ -182,8 +182,11 @@ void FSMController::applyValveFromCUS(int percent)
         pContext->setTargetValveFromDBS(potValue);
         pContext->setDBSControlActive(true);
         
+        int angle = (int)((1.0 - potValue) * 90);
+        pValveMotor->manuallySetAngle(angle);
+        
         pDisplay->showModeAndPercentage("MANUAL", percent);
-        Logger.log("[FSM] Valve set from CUS: " + String(percent) + "% (waiting for pot pickup)");
+        Logger.log("[FSM] Valve set from CUS: " + String(percent) + "%");
     }
     else if (state == AUTOMATIC)
     {
