@@ -2,6 +2,7 @@
 
 > A distributed IoT system for rainwater tank monitoring and automated water channel control — built across ESP32, Arduino, a Java/Vert.x backend, and a web dashboard.
 
+![circuit-diagram](./doc/tinkercad.png)
 ---
 
 ## What is Smart Tank Monitoring?
