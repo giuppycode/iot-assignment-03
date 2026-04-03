@@ -3,8 +3,6 @@
 #include <stdlib.h>
 #include "kernel/Logger.h"
 
-#define L1 0.20
-#define L2 0.30
 #define PICKUP_THRESHOLD 0.02
 
 FSMController::FSMController(DisplayLcd *pDisplay, ValveMotor *pValveMotor, Potentiometer *pPot, Button *pButton, Context *pContext)
@@ -33,32 +31,13 @@ void FSMController::tick()
             {
                 Logger.log("[FSM] Entered AUTOMATIC");
                 pValveMotor->close();
+                pDisplay->showModeAndPercentage("AUTOMATIC", 0);
             }
             if (pButton->isPressed())
             {
                 setState(MANUAL);
                 sendModeToCUS("MANUAL");
             }
-
-            float currentDistance = pContext->getCurrentDistance();
-            int percentage = 0;
-            if (currentDistance > L1 && currentDistance < L2)
-            {
-                pValveMotor->half(); // al 50%
-                percentage = 50;
-            }
-            else if (currentDistance >= L2)
-            {
-                pValveMotor->open(); // al 100%
-                percentage = 100;
-            }
-            else
-            {
-                pValveMotor->close(); // al 0%
-                percentage = 0;
-            }
-            pDisplay->showModeAndPercentage("AUTOMATIC", percentage);
-            MsgService.sendMsg("VALVE:" + String(percentage));
         }
         else
         {
