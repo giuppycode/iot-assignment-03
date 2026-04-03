@@ -100,8 +100,8 @@ Runs on a **PC** as a Java/Vert.x backend. The central coordinator of the whole 
 **Responsibilities:**
 - Subscribes to water level data from TMS over **MQTT**
 - Applies automatic control logic:
-  - Level > `L1` (20%) for more than `T1` → open valve to **50%** until level drops below `L1`
-  - Level > `L2` (30%) → immediately open valve to **100%** until level drops below `L2`
+  - Level > `L1`  for more than `T1` → open valve to **50%** until level drops below `L1`
+  - Level > `L2`  → immediately open valve to **100%** until level drops below `L2`
 - Sends valve commands to WCS over **serial**
 - Exposes an **HTTP REST API** for the dashboard
 - Tracks system state: `AUTOMATIC`, `MANUAL`, `UNCONNECTED`
@@ -192,8 +192,8 @@ src/
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| L1 | 20% | Threshold for 50% valve opening |
-| L2 | 30% | Threshold for 100% valve opening |
+| L1 | 0.20 cm | Threshold for 50% valve opening |
+| L2 | 0.30 cm | Threshold for 100% valve opening |
 | T1 | configurable | Time above L1 before valve opens |
 | T2 | configurable | Timeout for UNCONNECTED state |
 | Scheduler base period | 50ms | Base tick for all tasks |
