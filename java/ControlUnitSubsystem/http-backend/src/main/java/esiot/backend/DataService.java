@@ -27,6 +27,13 @@ public class DataService extends AbstractVerticle {
 	private long lastReceived = System.currentTimeMillis();
 	private WCSService wcsService;
 	
+	private static final float L1 = 0.20f;
+	private static final float L2 = 0.30f;
+	private static final long T1_MS = 2000;
+	private float currentDistance = 0;
+	private long l1ConditionStartTime = 0;
+	private int currentValvePercent = -1;
+	
 	public DataService(int port) {
 		values = new LinkedList<>();		
 		this.port = port;
@@ -39,6 +46,9 @@ public class DataService extends AbstractVerticle {
 	public void setMode(String mode) {
 		this.mode = mode;
 		log("Mode updated to: " + mode);
+		if ("MANUAL".equals(mode)) {
+			l1ConditionStartTime = 0;
+		}
 	}
 
 	public String getMode() {
@@ -47,7 +57,52 @@ public class DataService extends AbstractVerticle {
 
 	public void setValvePercent(float percent) {
 		this.valvePercent = percent;
+		this.currentValvePercent = (int) percent;
 		log("Valve percent updated to: " + percent);
+	}
+
+	public void onDistanceReceived(float distance) {
+		this.currentDistance = distance;
+		this.lastReceived = System.currentTimeMillis();
+		
+		if ("AUTOMATIC".equals(mode)) {
+			applyAutomaticPolicy(distance);
+		}
+	}
+	
+	private void applyAutomaticPolicy(float distance) {
+		int newValvePercent = 0;
+		
+		if (distance >= L2) {
+			newValvePercent = 100;
+			l1ConditionStartTime = 0;
+		} else if (distance > L1) {
+			long now = System.currentTimeMillis();
+			if (l1ConditionStartTime == 0) {
+				l1ConditionStartTime = now;
+			} else if (now - l1ConditionStartTime > T1_MS) {
+				newValvePercent = 50;
+			}
+		} else {
+			l1ConditionStartTime = 0;
+			newValvePercent = 0;
+		}
+		
+		if (newValvePercent != currentValvePercent && newValvePercent != 0) {
+			currentValvePercent = newValvePercent;
+			valvePercent = newValvePercent;
+			log("Automatic mode: setting valve to " + newValvePercent + "% (distance=" + distance + ")");
+			if (wcsService != null) {
+				wcsService.sendValve(newValvePercent);
+			}
+		} else if (newValvePercent == 0 && currentValvePercent != 0) {
+			currentValvePercent = 0;
+			valvePercent = 0;
+			log("Automatic mode: closing valve (distance=" + distance + ")");
+			if (wcsService != null) {
+				wcsService.sendValve(0);
+			}
+		}
 	}
 
 	@Override
@@ -78,7 +133,6 @@ public class DataService extends AbstractVerticle {
 	
 	private void handleAddNewData(RoutingContext routingContext) {
 		HttpServerResponse response = routingContext.response();
-		// log("new msg "+routingContext.getBodyAsString());
 		JsonObject res = routingContext.getBodyAsJson();
 		if (res == null) {
 			sendError(400, response);
@@ -94,6 +148,9 @@ public class DataService extends AbstractVerticle {
 			lastReceived = time;
 			
 			log("New value: " + value + " from " + place + " on " + new Date(time));
+			
+			onDistanceReceived(value);
+			
 			response.setStatusCode(200).end();
 		}
 	}
