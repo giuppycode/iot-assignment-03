@@ -28,8 +28,8 @@ public class DataService extends AbstractVerticle {
 	private WCSService wcsService;
 	
 	private static final float L1 = 0.20f;
-	private static final float L2 = 0.30f;
-	private static final long T1_MS = 2000;
+	private static final float L2 = 0.40f;
+	private static final long T1_MS = 500;
 	private float currentDistance = 0;
 	private long l1ConditionStartTime = 0;
 	private int currentValvePercent = -1;
