@@ -70,7 +70,7 @@ Il sistema opera in due modalità: \texttt{AUTOMATIC}, in cui il backend decide 
 
 \begin{itemize}
     \item \textbf{Servomotore (valvola) -- \texttt{Pin 10}:} Controlla l'apertura del canale idraulico. L'intervallo operativo va da $0°$ (valvola chiusa, 0\% apertura) a $90°$ (valvola completamente aperta, 100\% apertura). Utilizza la libreria \texttt{ServoTimer2} per evitare conflitti con \texttt{TimerOne}.
-    \item \textbf{Potenziometro -- \texttt{Pin A0}:} Permette il controllo manuale dell'apertura della valvola in modalità \texttt{MANUAL}. Il valore analogico letto viene normalizzato nell'intervallo $[0.0, 1.0]$, con mapping invertito ($0\% \rightarrow 90°$, $100\% \rightarrow 0°$) per rispettare la meccanica del sistema.
+    \item \textbf{Potenziometro B103 -- \texttt{Pin A0}:} Permette il controllo manuale dell'apertura della valvola in modalità \texttt{MANUAL}. Il valore analogico letto viene normalizzato nell'intervallo $[0.0, 1.0]$, con mapping invertito ($0\% \rightarrow 90°$, $100\% \rightarrow 0°$) per rispettare la meccanica del sistema. La sua posizione fisica è indipendente dal valore impostato da remoto tramite la dashboard. Questa limitazione hardware ha reso necessario implementare un meccanismo di \textit{pick-up} per la sincronizzazione tra controllo remoto e controllo locale (si veda la Sezione~\ref{sec:pickup}).
     \item \textbf{Pulsante Tactile -- \texttt{Pin 8}:} Commuta tra le modalità \texttt{AUTOMATIC} e \texttt{MANUAL}. Alla prima pressione si entra in \texttt{MANUAL}; alla seconda si torna in \texttt{AUTOMATIC}.
     \item \textbf{Display LCD I2C (16x2) -- \texttt{Indirizzo 0x27}:} Mostra il livello attuale di apertura della valvola in percentuale e la modalità operativa corrente (\texttt{AUTOMATIC}, \texttt{MANUAL} o \texttt{UNCONNECTED}).
 \end{itemize}
@@ -144,13 +144,29 @@ La macchina a stati gestisce tre stati operativi:
 \textbf{Soglie di controllo automatico (CUS → WCS):}
 \begin{itemize}
     \item Livello $> L_1$ (20\%) per più di $T_1$ secondi $\rightarrow$ valvola al \textbf{50\%}.
-    \item Livello $> L_2$ (30\%) $\rightarrow$ valvola al \textbf{100\%} immediatamente.
+    \item Livello $> L_2$ (40\%) $\rightarrow$ valvola al \textbf{100\%} immediatamente.
     \item Livello rientrato sotto la soglia $\rightarrow$ valvola richiusa.
 \end{itemize}
 
 \subsection{Comunicazione Seriale Asincrona -- MsgService}
 
-La comunicazione con il CUS avviene in modo non bloccante tramite la classe \texttt{MsgService}. I caratteri in arrivo vengono accumulati in un buffer; quando viene rilevato il terminatore \texttt{\textbackslash n}, la stringa è impacchettata in un oggetto \texttt{Msg} e un flag \texttt{msgAvailable} viene alzato. Il \texttt{SerialTask} verifica il flag ad ogni ciclo e processa il messaggio senza mai bloccarsi in attesa. Il protocollo adottato è basato su stringhe del tipo \texttt{MODE,VALVE:XX}, dove \texttt{XX} rappresenta la percentuale di apertura target.
+La comunicazione con il CUS avviene in modo non bloccante tramite la classe \texttt{MsgService}. I caratteri in arrivo vengono accumulati in un buffer; quando viene rilevato il terminatore \texttt{\textbackslash n}, la stringa è impacchettata in un oggetto \texttt{Msg} e un flag \texttt{msgAvailable} viene alzato. Il \texttt{SerialTask} verifica il flag ad ogni ciclo e processa il messaggio senza mai bloccarsi in attesa. Il protocollo è basato su messaggi ASCII distinti, terminati da \texttt{\textbackslash n}:
+
+\begin{itemize}
+    \item \texttt{MODE:\{MODE\}} -- inviato dal CUS al WCS per imporre la modalità operativa (es.\ \texttt{MODE:AUTOMATIC}), oppure dal WCS al CUS per notificare un cambio di modalità indotto localmente (es.\ \texttt{MODE:MANUAL} in seguito alla pressione del pulsante).
+    \item \texttt{VALVE:\{PERCENT\}} -- inviato dal CUS al WCS per impostare la percentuale di apertura target della valvola (es.\ \texttt{VALVE:50}); il WCS può a sua volta inviare la percentuale corrente al CUS per la sincronizzazione dello stato.
+\end{itemize}
+
+\subsection{Meccanismo di Pick-Up -- Sincronizzazione Potenziometro e Dashboard}
+\label{sec:pickup}
+
+In modalità \texttt{MANUAL} il controllo della valvola può provenire da due sorgenti distinte: il potenziometro fisico sul WCS e lo slider della dashboard remota (DBS). Il potenziometro adottato è un componente passivo a rotazione limitata: non è motorizzato né di tipo \textit{endless}, il che rende impossibile aggiornarne la posizione meccanica a seguito di un comando remoto. Se lo slider della DBS impostasse direttamente la posizione del motore, il valore del potenziometro e quello visualizzato sul display risulterebbero immediatamente sfasati, causando un \textit{reset} incontrollato della valvola non appena l'operatore ruotasse fisicamente la manopola.
+
+\textbf{Soluzione -- meccanismo di pick-up:} quando il WCS riceve un comando \texttt{VALVE:XX} dal CUS in modalità \texttt{MANUAL}, il motore \emph{non} viene mosso immediatamente. Il valore target viene invece memorizzato nel \texttt{Context} (\texttt{targetValveFromDBS}) e viene attivato un flag \texttt{dbsControlActive}. Ad ogni tick, il \texttt{PotReader} confronta la lettura corrente del potenziometro con il target: non appena la differenza scende al di sotto della soglia \texttt{PICKUP\_THRESHOLD} (2\%), il flag viene abbassato, il motore si porta alla posizione del potenziometro e il WCS notifica il nuovo valore al CUS tramite \texttt{VALVE:XX}. Da quel momento il potenziometro torna ad avere il controllo diretto della valvola.
+
+La soglia del 2\% è stata scelta come compromesso tra la precisione necessaria per un aggancio pulito e la tolleranza al rumore analogico del sensore, che rende impraticabile una soglia inferiore all'1\%.
+
+\textbf{Gestione dello stato UNCONNECTED in modalità MANUAL:} una criticità correlata riguarda il comportamento del CUS quando il TMS smette di trasmettere dati. Nella logica originale, il timeout MQTT avrebbe fatto transitare il sistema in \texttt{UNCONNECTED} anche durante una sessione di controllo manuale, disabilitando lo slider sulla dashboard. La correzione applicata nel \texttt{DataService} del CUS vincola la transizione in \texttt{UNCONNECTED} alla sola modalità \texttt{AUTOMATIC}: in \texttt{MANUAL} il sistema rimane operativo indipendentemente dalla connettività del TMS, poiché la policy automatica è comunque sospesa.
 
 % ─────────────────────────────────────────────
 \section{CUS -- Control Unit Subsystem (Java/Vert.x)}
@@ -176,7 +192,9 @@ Il \texttt{DataService} espone i seguenti endpoint HTTP:
 \begin{itemize}
     \item \texttt{GET /api/data} -- restituisce le ultime $N$ misurazioni del livello del serbatoio (buffer circolare in memoria, \texttt{LinkedList} con massimo 10 elementi).
     \item \texttt{GET /api/status} -- restituisce lo stato corrente del sistema: \texttt{AUTOMATIC}, \texttt{MANUAL} o \texttt{UNCONNECTED}.
-    \item \texttt{POST /api/valve} -- permette alla dashboard di impostare la percentuale di apertura della valvola in modalità \texttt{MANUAL}.
+    \item \texttt{POST /api/status} -- permette alla dashboard di commutare la modalità operativa del sistema (corpo JSON: \texttt{\{"mode": "MANUAL"\}}). Il CUS propaga il cambio al WCS tramite il messaggio seriale \texttt{MODE:\{MODE\}}.
+    \item \texttt{GET /api/valve} -- restituisce la percentuale di apertura corrente della valvola.
+    \item \texttt{POST /api/valve} -- permette alla dashboard di impostare la percentuale di apertura della valvola in modalità \texttt{MANUAL}. Il CUS inoltra il valore al WCS tramite il messaggio seriale \texttt{VALVE:\{PERCENT\}}.
 \end{itemize}
 
 \subsection{Logica di Controllo Automatico}
@@ -215,8 +233,8 @@ La dashboard è implementata come \textbf{applicazione web statica} (HTML + CSS 
 \subsection{Controllo}
 
 \begin{itemize}
-    \item \textbf{Pulsante modalità}: commuta tra \texttt{AUTOMATIC} e \texttt{MANUAL} inviando una richiesta \texttt{POST} all'endpoint \texttt{/api/status} del CUS.
-    \item \textbf{Slider valvola}: visibile e attivo solo in modalità \texttt{MANUAL}. Permette di impostare la percentuale di apertura desiderata, inviando la richiesta \texttt{POST /api/valve} al backend.
+    \item \textbf{Pulsante modalità}: commuta tra \texttt{AUTOMATIC} e \texttt{MANUAL} inviando una richiesta \texttt{POST /api/status} al CUS. Il backend, ricevuta la richiesta, propaga il cambio di modalità al WCS tramite il messaggio seriale \texttt{MODE:\{MODE\}}.
+    \item \textbf{Slider valvola}: visibile e attivo solo in modalità \texttt{MANUAL}. Permette di impostare la percentuale di apertura desiderata inviando una richiesta \texttt{POST /api/valve} al CUS, il quale inoltra il comando al WCS tramite il messaggio seriale \texttt{VALVE:\{PERCENT\}}. A seguito del comando, lo slider rimane fisso sul valore impostato fino a quando il potenziometro fisico non raggiunge quella posizione e ne acquisisce il controllo tramite il meccanismo di pick-up; solo allora il valore visualizzato torna ad aggiornarsi in base alle letture del potenziometro.
 \end{itemize}
 
 % ─────────────────────────────────────────────
@@ -244,6 +262,8 @@ I sottosistemi TMS (ESP32) e WCS (Arduino) condividono un'identica architettura 
 \subsection{Difficoltà Riscontrate}
 
 \begin{itemize}
+    \item \textbf{Sincronizzazione potenziometro fisso e slider remoto:} L'utilizzo di un potenziometro passivo a rotazione limitata ha impedito di adottare un controllo diretto della posizione dalla dashboard: muovere immediatamente il motore al valore remoto avrebbe causato un disallineamento persistente tra la manopola fisica e lo stato visualizzato, con successive sovrascritture indesiderate alla prima rotazione del potenziometro. Il problema è stato risolto con il meccanismo di pick-up descritto nella Sezione~\ref{sec:pickup}, che ritarda il trasferimento del controllo al potenziometro fino a quando questo non raggiunge fisicamente il valore target impostato da remoto. Il potenziomentro viene preso come single source of truth inizalmente e sovrascritto dal controllo remoto neccessitando il pick in per riacquisire il controllo (questo evita discrepanze tra WCS e DBS).
+
     \item \textbf{Conflitti tra librerie Timer su Arduino:} L'utilizzo simultaneo di \texttt{TimerOne} (per lo scheduler) e della libreria standard \texttt{Servo} ha generato conflitti sui timer hardware dell'ATmega328P. Il problema è stato risolto adottando \texttt{ServoTimer2}, che utilizza \texttt{Timer2} lasciando \texttt{Timer1} libero per lo scheduler.
 
     \item \textbf{Sincronizzazione thread seriale e Vert.x:} La libreria \texttt{jssc} esegue i callback di ricezione seriale in un thread separato rispetto al loop Vert.x. Questo ha reso necessario l'uso di una \texttt{BlockingQueue} per il passaggio sicuro dei messaggi tra i due contesti di esecuzione, evitando race condition.
