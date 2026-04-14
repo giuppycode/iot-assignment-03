@@ -21,7 +21,7 @@ void setup()
   pTankMonitoringPlatform = new TankMonitoringPlatform();
   pTankMonitoringPlatform->init();
 
-  sched.init(50);
+  sched.init(200);
   randomSeed(micros());
 
 #ifndef __TESTING_HW__
